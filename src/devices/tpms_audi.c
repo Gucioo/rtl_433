@@ -5,7 +5,7 @@
     
     BMW Gen5 TPMS sensor.
 
-    Copyright (C) 2024 Bruno OCTAU (ProfBoc75), \@petrjac, Christian W. Zuckschwerdt <christian@zuckschwerdt.org>
+    Copyright (C) 2024 Bruno OCTAU (ProfBoc75), \@petrjac, Christian W. Zuckschwerdt <christian@zuckschwerdt.org>, Gucioo.
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -72,6 +72,16 @@ Continental model:
 Schrader/Sensata model:
 
     F1, F2, F3 to guess
+
+Audi:
+time      : 2024-04-07 18:34:36
+model     : Audi/BMW-GEN5 type      : TPMS         Brand     : 0             id        : 20c07457
+Pressure  : 46.5 kPa     Temperature: 24.0 C       msg       : 0020c07457134c55                        Integrity : CRC
+*** Saving signal to file g015_433.92M_1000k.cu8 (37098 samples, 131072 bytes)
+^CSignal caught, exiting!
+Reattached kernel driver
+
+
 */
 
 #include "decoder.h"
@@ -97,11 +107,11 @@ static int tpms_bmw_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 
     decoder_log_bitrow(decoder, 2, __func__, bitbuffer->bb[0], bitbuffer->bits_per_row[0], "MSG");
 
-    bitbuffer_manchester_decode(bitbuffer, 0, pos + sizeof(preamble_pattern) * 8, &decoded, 7 * 8);
+    bitbuffer_manchester_decode(bitbuffer, 0, pos + sizeof(preamble_pattern) * 8, &decoded, 8 * 8);
 
     decoder_log_bitrow(decoder, 2, __func__, decoded.bb[0], decoded.bits_per_row[0], "MC");
 
-    if (decoded.bits_per_row[0] < 56) {
+    if (decoded.bits_per_row[0] < 64) {
         decoder_logf(decoder, 1, __func__, "Too short");
         return DECODE_ABORT_LENGTH;
     }
@@ -109,11 +119,11 @@ static int tpms_bmw_decode(r_device *decoder, bitbuffer_t *bitbuffer)
     bitbuffer_invert(&decoded); // MC Zerobit
     decoder_log_bitrow(decoder, 2, __func__, decoded.bb[0], decoded.bits_per_row[0], "MC inverted");
     b = decoded.bb[0];
-    // No CRC for AUDI Huf
-    //if (crc8(b, 11, 0x2f, 0xaa)) {
-    //    decoder_logf(decoder, 1, __func__, "crc error, expected %02x, calculated %02x", b[11], crc8(b, 11, 0x2f, 0xaa));
-    //    return DECODE_FAIL_MIC; // crc mismatch
-    //}
+    // CRC for AUDI Huf
+    if (crc8(b, 8, 0x2f, 0xaa)) {
+        decoder_logf(decoder, 1, __func__, "crc error, expected %02x, calculated %02x", b[8], crc8(b, 8, 0x2f, 0xaa));
+        return DECODE_FAIL_MIC; // crc mismatch
+    }
     decoder_log(decoder, 2, __func__, "Audi/BMW found");
     int brand_id            = b[0]; // 0x00 = Audi, 0x03 = HUF Gen 5, 0x80 = Continental, 0x23 = Sensata, 0x88 = ??
     float pressure_kPa      = b[5] * 2.45;
@@ -124,12 +134,12 @@ static int tpms_bmw_decode(r_device *decoder, bitbuffer_t *bitbuffer)
 
     char id_str[9];
     snprintf(id_str, sizeof(id_str), "%02x%02x%02x%02x", b[1], b[2], b[3], b[4]);
-    char msg_str[15]; // was 23
+    char msg_str[17]; // was 23
     //snprintf(msg_str, sizeof(msg_str), "%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10]);
-    snprintf(msg_str, sizeof(msg_str), "%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6]); //, b[7], b[8], b[9], b[10]);
+    snprintf(msg_str, sizeof(msg_str), "%02x%02x%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]); //, b[8], b[9], b[10]);
     /* clang-format off */
     data_t *data = data_make(
-            "model",               "",                DATA_STRING, "BMW-GEN5",
+            "model",               "",                DATA_STRING, "Audi/BMW-GEN5",
             "type",                "",                DATA_STRING, "TPMS",
             "brand",               "Brand",           DATA_INT,    brand_id,
             "id",                  "",                DATA_STRING, id_str,
@@ -139,7 +149,7 @@ static int tpms_bmw_decode(r_device *decoder, bitbuffer_t *bitbuffer)
             //"flags2",              "",                DATA_INT,    flags2,
             //"flags3",              "",                DATA_INT,    flags3, // Nominal Pressure for brand HUF 0x03
             "msg",                 "msg",             DATA_STRING, msg_str, // To remove after guess all tags
-            //"mic",                 "Integrity",       DATA_STRING, "CRC",
+            "mic",                 "Integrity",       DATA_STRING, "CRC",
             NULL);
     /* clang-format on */
 
